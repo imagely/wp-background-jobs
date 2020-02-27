@@ -15,5 +15,8 @@
         "psr-4": {
             "ReactrIO\\Background\\" : "lib/"
         }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "dev-master"
     }
 }
