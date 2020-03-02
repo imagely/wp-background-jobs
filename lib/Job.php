@@ -139,9 +139,14 @@ abstract class Job
      * If no queue is provided, then a job from any queue will be returned.
      * 
      */
-    static function get_next_from_queue($queue=NULL)
+    static function get_next_from_queue($queue=NULL, $worker_id=NULL)
     {
-        return self::get_all_from_queue($queue, 1);
+        $jobs = self::get_all_from_queue($queue, 1);
+        if ($jobs) {
+            $job = $jobs[0];
+            return $job->save($job->get_queue_name(), $worker_id);
+        }
+        return NULL;
     }
 
     /**
@@ -156,7 +161,6 @@ abstract class Job
                 $job->_id = NULL;
                 $job->_queue = NULL;
                 $job->_worker_id = NULL;
-                $job->_claim_id = NULL;
             }
         }
         if (!$job) throw new E_DequeueJob("Job #{$job_id} could not be dequeued");
@@ -198,12 +202,6 @@ abstract class Job
      * @property int $_id
      */
     protected $_id = 0;
-
-
-    /**
-     * The claim id of the Job
-     */
-    protected $_claim_id = '';
 
     /**
      * A human-friendly label to describe the job
@@ -305,11 +303,6 @@ abstract class Job
         return $this->_queue;
     }
 
-    function get_queue()
-    {
-        return Queue::get_instance($this->_queue);
-    }
-
     function get_worker_id()
     {
         return $this->_worker_id;
@@ -318,11 +311,6 @@ abstract class Job
     function get_time_estimate()
     {
         return $this->_time_estimate;
-    }
-
-    function get_claim_id()
-    {
-        return $this->_claim_id;
     }
 
     function get_type()
@@ -349,7 +337,7 @@ abstract class Job
 
     function is_claimed()
     {
-        return isset($this->_claim_id) && isset($this->_worker_id);
+        return isset($this->_worker_id);
     }
 
     /**
@@ -397,7 +385,6 @@ abstract class Job
         $props['_id']           = $post->ID;
         $props['_worker_id']    = $post->post_password;
         $props['_queue']        = str_replace("queue/", "", $post->post_mime_type);
-        $props['_claim_id']     = $post->ping_status == 'closed' ? '' : $post->ping_status;
         $props['_status']       = $post->post_status;
 
         return new $klass($props);
@@ -447,11 +434,10 @@ abstract class Job
      * @param string $queue the name of the queue to be associated with this Job
      * @return WP_Post
      */
-    function to_post(string $queue, string $claim_id=NULL, $worker_id=NULL)
+    function to_post(string $queue, string $worker_id=NULL)
     {
         // Update some props passed in
         $this->_queue = $queue;
-        $this->_claim_id = $claim_id;
         $this->_worker_id = $worker_id;
 
         // Construct array with custom fields
@@ -467,7 +453,6 @@ abstract class Job
         // WP props
         $data = new \stdClass;
         $data->ID = $this->_id;
-        $data->ping_status = $this->_claim_id ? $this->_claim_id : ''; /* ping_status is claim_id */
         $data->post_password = $this->_worker_id ? $this->_worker_id: ''; /* post_password is worker_id */
         $data->post_type = self::POST_TYPE;
         $data->post_status = $this->_status;
@@ -476,7 +461,6 @@ abstract class Job
         $data->post_mime_type = "queue/{$queue}"; /** post_mime_type is the queue */
 
         // Apply overrides
-        if ($claim_id) $data->ping_status = $claim_id;
         if ($worker_id) $data->post_password = $worker_id;
 
         return new WP_Post($data);
@@ -490,7 +474,7 @@ abstract class Job
     /**
      * Saves the job in the DB
      */
-    function save(string $queue, string $claim_id=NULL, string $worker_id=NULL)
+    function save(string $queue, string $worker_id=NULL)
     {
         $previously_unqueued = $this->get_status() === self::STATUS_UNQUEUED;
 
@@ -499,12 +483,11 @@ abstract class Job
 
         $this->logHistory("Job was persisted to the DB");
         $this->_id = $this->_id
-            ? wp_update_post($this->to_post($queue, $claim_id, $worker_id), TRUE)
-            : wp_insert_post($this->to_post($queue, $claim_id, $worker_id), TRUE);
+            ? wp_update_post($this->to_post($queue, $worker_id), TRUE)
+            : wp_insert_post($this->to_post($queue, $worker_id), TRUE);
 
         if (!is_wp_error($this->_id)) {
             $this->_queue = $queue;
-            $this->_claim_id = $claim_id;
             $this->_worker_id = $worker_id;
         }
         else {
@@ -525,7 +508,6 @@ abstract class Job
         if (wp_delete_post($this->get_id())) {
             $this->_id = 0;
             $this->_worker_id = '';
-            $this->_claim_id = '';
             $this->_queue = '';
             return $this;
         }
@@ -551,7 +533,6 @@ abstract class Job
     {
         $this->logHistory("Job was unclaimed from {$this->get_worker_id()}");
         $this->_worker_id = '';
-        $this->_claim_id = '';
         $this->save($this->get_queue_name());
         return $this;
     }

@@ -172,7 +172,7 @@ class Worker
             }
 
             // Gets a job from any queue, and claims it
-            $job = Queue::get_any_job($this->id());
+            $job = Job::get_next_from_queue();
             if (!$job) return;
 
             try {
