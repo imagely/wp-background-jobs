@@ -66,6 +66,7 @@ class Endpoint
     
     public function _startWorker(\WP_REST_Request $request)
     {
+        error_log("---------- STARTING WORKER ------------");
         $params = $request->get_json_params();
         if (isset($params['num'])) {
             $worker = new Worker($params['num']);

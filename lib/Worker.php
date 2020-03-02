@@ -4,12 +4,20 @@ declare(ticks=5);
 
 namespace ReactrIO\Background;
 
+use RuntimeException;
 use Spatie\Url\Url;
+
+class E_MisconfiguredWorkerURI extends RuntimeException {}
 
 class Worker
 {
     const DEAD=-1;
     const ALIVE=1;
+
+    /**
+     * @property string
+     */
+    static $endpoint_uri = '';
 
     /**
      * The ID of the worker
@@ -35,15 +43,20 @@ class Worker
     /**
      * The timelimit for a worker to run
      */
-    protected $_timelimit = 20000000.0;
+    protected $_time_limit = 25000000.0;
 
 
-/**
+    /**
      * Computes the id of the worker, given by its number
      */
     public static function get_id(int $num)
     {
         return get_called_class().$num;
+    }
+
+    protected static function get_stop_transient_name(string $worker_id)
+    {
+        return 'reactr_stop_worker_'.$worker_id;
     }
 
     /**
@@ -108,18 +121,18 @@ class Worker
      * Gets the running status of the worker
      * @returns bool
      */
-    function is_running()
+    function is_running(int $num_of_pings=1, $ttl=1)
     {
-        return self::get_status($this->id()) === self::ALIVE;
+        return self::get_status($this->id(), $num_of_pings, $ttl) === self::ALIVE;
     }
 
     /**
      * Gets the running status of the worker
      * @returns bool
      */
-    function is_not_running()
+    function is_not_running(int $num_of_pings=1, $ttl=1)
     {
-        return !$this->is_running();
+        return !$this->is_running($num_of_pings, $ttl);
     }
 
     /**
@@ -133,28 +146,55 @@ class Worker
      */
     function run($endpoint_uri)
     {
-        // Register a tick function which will answer ping requests by another thread
+        xdebug_break();
+        $exit=FALSE;
+
+        // Register a tick function which will answer requests by another thread
         register_tick_function(function(){
             if (get_transient(self::_get_ping_transient_name($this->id()))) {
                 delete_transient(self::_get_ping_transient_name($this->id()));
-                set_transient(self::_get_pong_transient_name($this->id()), microtime(TRUE));
+            }
+            if (get_transient(self::get_stop_transient_name($this->id()))) {
+                $exit=TRUE;
             }
         });
 
         $this->_started_at = microtime(TRUE);
 
+        // TODO Implement working logging
         error_log("In worker!");
-        sleep(5);
 
-        try {
+        while ($this->has_not_exceeded_timelimit()) {
+            // If we're to exit, do so
+            if ($exit) {
+                delete_transient(self::get_stop_transient_name($this->id()));
+                return;
+            }
 
+            // Gets a job from any queue, and claims it
+            $job = Queue::get_any_job($this->id());
+            if (!$job) return;
+
+            try {
+                // Some jobs try to estimate how much time they require to complete
+                // If we don't have enough time to run that job in this process,
+                // we unclaim it so that it can be run in another worker process.
+                if ($this->has_time_remaining($job->get_time_estimate())) {
+                    $job->run();
+                    $job->mark_as_done();
+                }
+                else {
+                    $job->unclaim();
+                }
+            }
+            catch (\Exception $ex) {
+                $job->mark_as_failed($ex);
+                $job->unclaim();
+            }
         }
-        catch (\Exception $ex) {
 
-        }
-        $this->start($endpoint_uri);
+        $this->start();
     }
-
 
     /**
      * Gets the number of microseconds elapsed since the worker started to run
@@ -171,7 +211,7 @@ class Worker
      */
     function has_exceeded_timelimit()
     {
-        return $this->get_elapsed() >= $this->_timelimit;
+        return $this->get_elapsed() >= $this->_time_limit && $this->_started_at > 0;
     }
 
     /**
@@ -202,27 +242,32 @@ class Worker
         return FALSE;
     }
 
+    function stop()
+    {
+        set_transient(self::get_stop_transient_name($this->id()), microtime(TRUE));
+    }
+
     /**
      * Starts the work
      * 
      * @param $endpoint_uri the REST URI used to start the worker
      * @returns NULL
      */
-    function start($endpoint_uri)
+    function start()
     {
         // We know that the noop resource is available on the same endpoint
-        $noop_uri = str_replace('/startworker', '/noop', $endpoint_uri);
+        $noop_uri = str_replace('/startWorker', '/noop', self::$endpoint_uri);
 
         // JSON
         $data = [
             'secret'        => Endpoint::get_worker_secret(),
             'num'           => $this->_num,
-            'endpoint_uri'  => $endpoint_uri
+            'endpoint_uri'  => self::$endpoint_uri
         ];
 
         return $this->_loopback_request(
             $noop_uri,
-            $endpoint_uri,
+            self::$endpoint_uri,
             $data,
             ['timeout' => 5]
         );
@@ -238,8 +283,8 @@ class Worker
      * @param array $options
      * @returns array $responses
      */
-    protected function _request_concurrently(array $requests, array $options=[])
-    {
+    static protected function _request_concurrently(array $requests, array $options=[])
+    {   
         $hooks = new \Requests_Hooks();
         $hook = function($handle){
             curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, 0);
@@ -248,7 +293,7 @@ class Worker
         $hooks->register('curl.before_multi_add', $hook);
 
         // Submit requests
-        return \Requests::request_multiple(array_merge($options, $requests, [
+        return \Requests::request_multiple($requests, array_merge($options, [
             'hooks'     => $hooks
         ]));
     }
@@ -257,7 +302,7 @@ class Worker
      * Returns the list of tests to perform for finding the lookpback url
      * @returns array
      */
-    protected function _get_loopback_url_tests()
+    static protected function _get_loopback_url_tests()
     {
         return [
             ['ip' => $_SERVER['REMOTE_ADDR']],
@@ -290,7 +335,7 @@ class Worker
      * @throws RuntimeException if the loopback url cannot be determined
      * @returns string
      */
-    protected function _get_loopback_url($noop_uri)
+    static protected function _get_loopback_url($noop_uri)
     {
         static $retval = NULL;
 
@@ -328,11 +373,11 @@ class Worker
                         'timeout'           => 5,
                     ];
                 },
-                $this->_get_loopback_url_tests()
+                self::_get_loopback_url_tests()
             );
             
             // Currently, the Requests::multisite
-            $responses = $this->_request_concurrently($requests, ['timeout' => 5]);
+            $responses = self::_request_concurrently($requests, ['timeout' => 5]);
 
             // Get the url which worked
             $loopback_url = array_reduce($responses, function($retval, $response){
@@ -361,9 +406,9 @@ class Worker
      */
     protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
     {
-        $site_url   = Url::fromString(site_url($wp_request_uri));
+        $site_url   = Url::fromString(get_rest_url(NULL, $wp_request_uri));
         
-        return Url::fromString($loopback_url)->withPath($site_url->getPath());
+        return (string) Url::fromString($loopback_url)->withPath($site_url->getPath());
     }
 
     /**
@@ -415,11 +460,14 @@ class Worker
      * @param int $num the numeric id of the worker
      * @param int $timelimit the number of seconds a worker is allowed to run for before needing to respawn
      */
-    function __construct(int $num, int $timelimit=20)
+    function __construct(int $num, int $time_limit=25)
     {
+        if (!self::$endpoint_uri) throw new E_MisconfiguredWorkerURI("No endpoint uri configured for the workers");
         $this->_num = $num;
         $this->_id = self::get_id($num);
         $this->_label = "Worker #{$num}";
-        $this->_timelimit = $timelimit*1000000;
+        $this->_time_limit = $time_limit*1000000;
     }
 }
+
+Job::register_type('sleep', SleepJob::class);

@@ -17,6 +17,5 @@
         }
     },
     "require-dev": {
-        "phpunit/phpunit": "dev-master"
     }
 }
