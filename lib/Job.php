@@ -1,5 +1,7 @@
 <?php
 
+declare(ticks=5);
+
 namespace ReactrIO\Background;
 
 use RuntimeException;
@@ -489,6 +491,8 @@ abstract class Job
         if (!is_wp_error($this->_id)) {
             $this->_queue = $queue;
             $this->_worker_id = $worker_id;
+
+            if ($this->_status == self::STATUS_QUEUED) do_action('reactr_bg_job_added', $this);
         }
         else {
             /**

@@ -70,7 +70,7 @@ class Endpoint
         $params = $request->get_json_params();
         if (isset($params['num'])) {
             $worker = new Worker($params['num']);
-            $worker->run($params['endpoint_uri']);
+            $worker->run();
         }
     }
 }

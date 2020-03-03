@@ -19,7 +19,7 @@ class Bootstrap
     /**
      * @returns Bootstrap
      */
-    public static function get_instance()
+    public static function init()
     {
         if (!self::$_instance) {
             $klass = get_called_class();
@@ -28,37 +28,28 @@ class Bootstrap
         return self::$_instance;
     }
 
-    /**
-     * Sets the number of desired workers. If there are fewer than the desired number created,
-     * then additional workers will be spawned
-     */
-    function set_desired_worker_count($number_of_workers)
-    {
-        $this->_number_of_workers = $number_of_workers;
-    }
-
-    /**
-     * 
-     */
-    function ensure_worker_count()
-    {
-        for ($i=1; $i == $this->_number_of_workers; $i++) {
-            $worker = new Worker($i);
-            if ($worker->is_not_running()) {
-                $worker->start("/{$this->_endpoint_name}/{$this->_endpoint_version}/startWorker");
-            }
-        }
-    }
-
-    protected function __construct()
+    protected function _create_endpoint()
     {
         $this->_endpoint_name        = 'reactr-bg';
         $this->_endpoint_version     = 'v1';
 
         Endpoint::get_instance($this->_endpoint_name);
-        
-        if ((!defined('DOING_CRON') || !constant('DOING_CRON'))) {
-            if (!wp_is_json_request()) register_shutdown_function([$this, 'ensure_worker_count']);
-        }
+
+        Worker::$endpoint_uri = '/reactr-bg/v1/startWorker';
+    }
+
+    protected function _register_hooks()
+    {
+        add_action('reactr_bg_job_added', function(){
+            Worker::wakeup($this->_number_of_workers);
+        });
+    }
+
+    protected function __construct($number_of_workers=1)
+    {
+        $this->_number_of_workers = $number_of_workers;
+
+        $this->_create_endpoint();
+        $this->_register_hooks();
     }
 }

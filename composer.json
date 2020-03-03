@@ -9,7 +9,7 @@
         }
     ],
     "require": {
-        "spatie/url": "^1.3",
+        "reactr-io/url": "@dev"
     },
     "autoload": {
         "psr-4": {
@@ -17,5 +17,9 @@
         }
     },
     "require-dev": {
-    }
+    },
+    "repositories": [
+        {"type": "composer", "url": "https://repo.packagist.com/reactr-io/"},
+        {"packagist.org": false}
+    ]
 }

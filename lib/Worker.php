@@ -1,23 +1,138 @@
 <?php
 
-declare(ticks=5);
-
 namespace ReactrIO\Background;
 
 use RuntimeException;
-use Spatie\Url\Url;
+use ReactrIO\Url\Url;
 
 class E_MisconfiguredWorkerURI extends RuntimeException {}
 
 class Worker
 {
-    const DEAD=-1;
-    const ALIVE=1;
+    const DEAD=1;
+    const ALIVE=2;
+    const UNKNOWN=3;
 
     /**
      * @property string
      */
     static $endpoint_uri = '';
+
+    /**
+     * Starts any workers that aren't running
+     * @param int $number_of_workers
+     * @return Worker[]
+     */
+    static function wakeup($number_of_workers=1)
+    {
+        return array_map(
+            function($num){
+                $worker = new Worker($num);
+                $worker->start();
+                return $worker;
+            },
+            array_fill(0, $number_of_workers, 1)
+        );
+    }
+    
+    /**
+     * Gets the name of the transient used for pings
+     * @param string $id
+     * @return string
+     */
+    public static function get_pid_transient_name(string $id)
+    {
+        return str_replace("\\", '_', strtolower($id)).'_pid';
+    }
+
+    /**
+     * Gets the name of the transient used to stop a worker
+     * @param string $id
+     * @return string
+     */
+    public static function get_stop_transient_name(string $id)
+    {
+        return str_replace("\\", '_', strtolower($id)).'stop';
+    }
+
+    /**
+     * Gets the status of a worker
+     * @param string $id
+     * @param int $pings
+     * @return ALIVE|DEAD
+     */
+    public static function get_status(string $id, int $pings=1, $ttl=1)
+    {
+        return array_reduce(
+            array_fill(0, $pings, $ttl),
+            function($retval, $val) use ($id){
+                sleep($val);
+                if ($retval == self::ALIVE) return $retval;
+                $status = self::_check_pid($id);
+                return $status == self::UNKNOWN
+                    ? self::_check_pid_transient($id)
+                    : $status;
+            },
+            FALSE
+        );
+    }
+
+    /**
+     * Checks whether the PID is alive
+     * @param string id
+     * @return UNKNOWN|ALIVE|DEAD
+     */
+    protected static function _check_pid(string $id)
+    {
+        if (!function_exists('shell_exec')) return self::UNKNOWN;
+
+        if (($pid = self::_get_option(self::get_pid_transient_name($id)))) {
+            error_log("Got pid!!! {$pid}");
+            if (stripos(PHP_OS, 'windows') !== FALSE) {
+                $cmd = "wmic process get processid | find \"{$this->pid}\"";
+                $res = array_filter(explode(" ", shell_exec($cmd)));
+                return count($res) > 0 && $this->pid == reset($res)
+                    ? self::ALIVE
+                    : self::DEAD;
+            }
+            return file_exists("/proc/{$pid}")
+                ? self::ALIVE
+                : self::DEAD;
+            
+        }
+
+        return self::DEAD;
+    }
+
+    /**
+     * Checks whether a pid transient exists
+     * @param string $id
+     * @return ALIVE|DEAD
+     */
+    protected static function _check_pid_transient(string $id)
+    {
+        return get_option(self::get_pid_transient_name($id)) ? self::ALIVE : self::DEAD;
+    }
+
+    /**
+     * Determines whether the worker is DEAD
+     * @param string $id
+     * @return bool
+     */
+    public static function is_dead(string $id, $pings=1)
+    {
+        return self::get_status($id, $pings) === self::DEAD;
+    }
+
+    /**
+     * Determines whether the worker is ALIVE
+     * @param string $id
+     * @return bool
+     */
+    public static function is_alive(string $id, $pings=1)
+    {
+        return self::get_status($id, $pings) === self::ALIVE;
+    }
 
     /**
      * The ID of the worker
@@ -53,51 +168,21 @@ class Worker
     {
         return get_called_class().$num;
     }
-
-    protected static function get_stop_transient_name(string $worker_id)
-    {
-        return 'reactr_stop_worker_'.$worker_id;
-    }
-
+    
     /**
-     * Pings the worker.
-     * 
-     * We do this by setting a transient, and waiting for the worker
-     * to delete it.
-     * 
-     * @param string $id
-     * @param int $num_of_pings optional
-     * @param int $ttl time to wait for pong
-     * @returns boolean
+     * Get an option from the DB. Because this is an option
+     * that didn't exist in the same request, we have to fetch
+     * directly from the DB: See: https://dhanendranblog.wordpress.com/2017/10/12/wordpress-alloptions-and-notoptions/
      */
-    public static function ping(string $id, int $num_of_pings=1, $ttl=1)
+    protected static function _get_option($name)
     {
-        for ($i=0; $i<$num_of_pings; $i++) {
-            set_transient(self::_get_ping_transient_name($id), microtime(TRUE));
-            sleep($ttl);
-            $retval = get_transient(self::_get_ping_transient_name($id) === FALSE);
-            if ($retval) {
-                delete_transient(self::_get_ping_transient_name($id));
-                break;
-            }
-        }
-        
-        return $retval;
-    }
+        /**
+         * @var \WPDB $wpdb
+         */
+        global $wpdb;
 
-    /**
-     * Returns the running status of the worker
-     * @param string id id of the worker
-     * @param int $num_of_pings optional
-     * @param int $ttl time to wait for pong
-     * @returns DEAD|ALIVE
-     */
-    public static function get_status(string $id, $num_of_pings=1, $ttl=1)
-    {
-        return self::ping($id, $num_of_pings, $ttl)
-            ? self::ALIVE
-            : self::DEAD;
-    }    
+        return $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
+    }
 
     /**
      * Returns the human-friendly label of the worker
@@ -121,18 +206,18 @@ class Worker
      * Gets the running status of the worker
      * @returns bool
      */
-    function is_running(int $num_of_pings=1, $ttl=1)
+    function is_running($pings=1)
     {
-        return self::get_status($this->id(), $num_of_pings, $ttl) === self::ALIVE;
+        return self::is_alive($this->id(), $pings);
     }
 
     /**
      * Gets the running status of the worker
      * @returns bool
      */
-    function is_not_running(int $num_of_pings=1, $ttl=1)
+    function is_not_running($pings=1)
     {
-        return !$this->is_running($num_of_pings, $ttl);
+        return self::is_dead($this->id(), $pings);
     }
 
     /**
@@ -144,47 +229,44 @@ class Worker
      * @param string $endpoint_uri the REST URI used to start the worker
      * @returns NULL
      */
-    function run($endpoint_uri)
+    function run()
     {
-        xdebug_break();
-        $exit=FALSE;
-
-        // Register a tick function which will answer requests by another thread
-        register_tick_function(function(){
-            if (get_transient(self::_get_ping_transient_name($this->id()))) {
-                delete_transient(self::_get_ping_transient_name($this->id()));
-            }
-            if (get_transient(self::get_stop_transient_name($this->id()))) {
-                $exit=TRUE;
-            }
-        });
+        $exit = FALSE;
 
         $this->_started_at = microtime(TRUE);
+        if (update_option(self::get_pid_transient_name($this->id()), getmypid())) {
+            error_log('PID transient set');
+        }
+        else error_log("PID transient could not be set");
 
-        // TODO Implement working logging
+        // TODO: Implement working logging
         error_log("In worker!");
 
-        while ($this->has_not_exceeded_timelimit()) {
-            // If we're to exit, do so
-            if ($exit) {
-                delete_transient(self::get_stop_transient_name($this->id()));
-                return;
+        while ($this->has_time_remaining()) {
+            // Stop request?
+            if (self::_get_option(self::get_stop_transient_name($this->id()))) {
+                delete_option(self::get_stop_transient_name($this->id()));
+                $exit = TRUE;
+                break;
             }
 
-            // Gets a job from any queue, and claims it
+            // Get a job to process
             $job = Job::get_next_from_queue();
-            if (!$job) return;
-
+            if (!$job) {
+                $exit = TRUE;
+                break;
+            }
+            
             try {
-                // Some jobs try to estimate how much time they require to complete
-                // If we don't have enough time to run that job in this process,
-                // we unclaim it so that it can be run in another worker process.
                 if ($this->has_time_remaining($job->get_time_estimate())) {
+                    error_log("Starting job: {$job->get_label()}");
                     $job->run();
                     $job->mark_as_done();
+                    error_log("Finished job");    
                 }
                 else {
-                    $job->unclaim();
+                    $exit = TRUE;
+                    break;
                 }
             }
             catch (\Exception $ex) {
@@ -193,7 +275,10 @@ class Worker
             }
         }
 
-        $this->start();
+        if (!$exit) $this->start();
+        else {
+            delete_option(self::get_pid_transient_name($this->id()));
+        }
     }
 
     /**
@@ -234,7 +319,7 @@ class Worker
      */
     function has_time_remaining($seconds=NULL)
     {
-        $remaining = $this->get_elapsed() - $this->_time_limit;
+        $remaining = $this->_time_limit - $this->get_elapsed();
 
         if ($seconds && $remaining >= $seconds) return TRUE;
         else if (!$seconds && $remaining) return TRUE;
@@ -242,9 +327,12 @@ class Worker
         return FALSE;
     }
 
-    function stop()
+    function stop($pings=1)
     {
-        set_transient(self::get_stop_transient_name($this->id()), microtime(TRUE));
+        if ($this->is_running($pings))
+            update_option(self::get_stop_transient_name($this->id()), microtime(TRUE));
+        
+        return $this->is_running($pings);
     }
 
     /**
@@ -255,6 +343,8 @@ class Worker
      */
     function start()
     {
+        if ($this->is_running()) return $this;
+
         // We know that the noop resource is available on the same endpoint
         $noop_uri = str_replace('/startWorker', '/noop', self::$endpoint_uri);
 
@@ -265,12 +355,14 @@ class Worker
             'endpoint_uri'  => self::$endpoint_uri
         ];
 
-        return $this->_loopback_request(
+        self::_loopback_request(
             $noop_uri,
             self::$endpoint_uri,
             $data,
             ['timeout' => 5]
         );
+
+        return $this;
     }
 
     /**
@@ -304,7 +396,12 @@ class Worker
      */
     static protected function _get_loopback_url_tests()
     {
+        $url = Url::fromString(site_url());
+
         return [
+            ['ip' => $url->getHost(), 'scheme' => $url->getScheme()],
+            ['ip' => $url->getHost(), 'scheme' => 'https'],
+            ['ip' => $url->getHost(), 'scheme' => 'http'],
             ['ip' => $_SERVER['REMOTE_ADDR']],
             ['ip' => $_SERVER['REMOTE_ADDR'], 'scheme' => 'http'],
             ['ip' => $_SERVER['REMOTE_ADDR'], 'scheme' => 'https'],
@@ -335,7 +432,7 @@ class Worker
      * @throws RuntimeException if the loopback url cannot be determined
      * @returns string
      */
-    static protected function _get_loopback_url($noop_uri)
+    static function get_loopback_url($noop_uri)
     {
         static $retval = NULL;
 
@@ -389,12 +486,12 @@ class Worker
             // Ensure that one worked
             if ($loopback_url) {
                 $retval = $loopback_url;
-                set_transient($transient_name, $retval);
+                set_transient($transient_name, $retval, 60*60*24);
                 return $retval;
             }
+            throw new \RuntimeException("Could not determine loopback url");
         }
-        
-        throw new \RuntimeException("Could not determine loopback url");
+        return $retval;
     }
 
     /**
@@ -404,7 +501,7 @@ class Worker
      * @see _get_loopback_url()
      * @returns string
      */
-    protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
+    static protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
     {
         $site_url   = Url::fromString(get_rest_url(NULL, $wp_request_uri));
         
@@ -428,9 +525,9 @@ class Worker
      * @param array $options
      * @returns WP_HTTP_Response|WP_Error
      */
-    protected function _loopback_request(string $noop_uri, string $request_uri, $data=[], $options=[])
+    static protected function _loopback_request(string $noop_uri, string $request_uri, $data=[], $options=[])
     {
-        $url = $this->_from_loopback_url_to_wp_url($request_uri, $this->_get_loopback_url($noop_uri));
+        $url = self::_from_loopback_url_to_wp_url($request_uri, self::get_loopback_url($noop_uri));
 
         return wp_remote_request(
             $url,
@@ -445,15 +542,6 @@ class Worker
                 ]
             ], $options)
         );
-    }
-
-    /**
-     * Gets the name of the transient used for pings
-     * @return string
-     */
-    protected static function _get_ping_transient_name(string $id)
-    {
-        return 'reactr_ping_worker_'.$id;
     }
 
     /**
