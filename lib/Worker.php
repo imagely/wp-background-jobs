@@ -40,7 +40,7 @@ class Worker
      * @param string $id
      * @return string
      */
-    public static function get_pid_transient_name(string $id)
+    public static function get_pid_transient_name($id)
     {
         return str_replace("\\", '_', strtolower($id)).'_pid';
     }
@@ -50,7 +50,7 @@ class Worker
      * @param string $id
      * @return string
      */
-    public static function get_stop_transient_name(string $id)
+    public static function get_stop_transient_name($id)
     {
         return str_replace("\\", '_', strtolower($id)).'stop';
     }
@@ -59,9 +59,10 @@ class Worker
      * Gets the status of a worker
      * @param string $id
      * @param int $pings
+     * @param int $ttl
      * @return ALIVE|DEAD
      */
-    public static function get_status(string $id, int $pings=1, $ttl=1)
+    public static function get_status($id, $pings=1, $ttl=1)
     {
         return array_reduce(
             array_fill(0, $pings, $ttl),
@@ -82,7 +83,7 @@ class Worker
      * @param string id
      * @return UNKNOWN|ALIVE|DEAD
      */
-    protected static function _check_pid(string $id)
+    protected static function _check_pid($id)
     {
         if (stripos(PHP_OS, 'WIN') !== FALSE) return self::UNKNOWN;
 
@@ -101,7 +102,7 @@ class Worker
      * @param string $id
      * @return ALIVE|DEAD
      */
-    protected static function _check_pid_transient(string $id)
+    protected static function _check_pid_transient($id)
     {
         return get_option(self::get_pid_transient_name($id)) ? self::ALIVE : self::DEAD;
     }
@@ -109,9 +110,10 @@ class Worker
     /**
      * Determines whether the worker is DEAD
      * @param string $id
+     * @param int $pings
      * @return bool
      */
-    public static function is_dead(string $id, $pings=1)
+    public static function is_dead($id, $pings=1)
     {
         return self::get_status($id, $pings) === self::DEAD;
     }
@@ -119,9 +121,10 @@ class Worker
     /**
      * Determines whether the worker is ALIVE
      * @param string $id
+     * @param int $pings
      * @return bool
      */
-    public static function is_alive(string $id, $pings=1)
+    public static function is_alive($id, $pings=1)
     {
         return self::get_status($id, $pings) === self::ALIVE;
     }
@@ -155,8 +158,10 @@ class Worker
 
     /**
      * Computes the id of the worker, given by its number
+     * @param int $num
+     * @return string
      */
-    public static function get_id(int $num)
+    public static function get_id($num)
     {
         return get_called_class().$num;
     }
@@ -165,6 +170,8 @@ class Worker
      * Get an option from the DB. Because this is an option
      * that didn't exist in the same request, we have to fetch
      * directly from the DB: See: https://dhanendranblog.wordpress.com/2017/10/12/wordpress-alloptions-and-notoptions/
+     * @param string $name
+     * @return any
      */
     protected static function _get_option($name)
     {
@@ -178,7 +185,7 @@ class Worker
 
     /**
      * Returns the human-friendly label of the worker
-     * @returns string
+     * @return string
      */
     function get_label()
     {
@@ -187,7 +194,7 @@ class Worker
 
     /**
      * Returns the ID of the worker
-     * @returns string
+     * @return string
      */
     function id()
     {
@@ -196,7 +203,8 @@ class Worker
 
     /**
      * Gets the running status of the worker
-     * @returns bool
+     * @param int $ping
+     * @return bool
      */
     function is_running($pings=1)
     {
@@ -205,7 +213,8 @@ class Worker
 
     /**
      * Gets the running status of the worker
-     * @returns bool
+     * @param int $pings
+     * @return bool
      */
     function is_not_running($pings=1)
     {
@@ -219,7 +228,7 @@ class Worker
      * there are no more items in the queue to process
      * 
      * @param string $endpoint_uri the REST URI used to start the worker
-     * @returns NULL
+     * @return NULL
      */
     function run()
     {
@@ -261,6 +270,8 @@ class Worker
                 }
             }
             catch (\Exception $ex) {
+                error_log("Job failed: ");
+                error_log(print_r($ex, TRUE));
                 $job->mark_as_failed($ex);
                 $job->unclaim();
             }
@@ -274,7 +285,7 @@ class Worker
 
     /**
      * Gets the number of microseconds elapsed since the worker started to run
-     * @returns float
+     * @return float
      */
     function get_elapsed()
     {
@@ -283,7 +294,7 @@ class Worker
 
     /**
      * Has the execution time exceeded the desired timelimit?
-     * @returns bool
+     * @return bool
      */
     function has_exceeded_timelimit()
     {
@@ -293,7 +304,7 @@ class Worker
     /**
      * Opposite of has_exceeded_timelimit()
      * @see has_exceeded_timelimit()
-     * @returns bool
+     * @return bool
      */
     function has_not_exceeded_timelimit()
     {
@@ -306,7 +317,7 @@ class Worker
      * amount of seconds in available in execution time
      * 
      * @param $seconds optional
-     * @returns bool
+     * @return bool
      */
     function has_time_remaining($seconds=NULL)
     {
@@ -330,7 +341,7 @@ class Worker
      * Starts the work
      * 
      * @param $endpoint_uri the REST URI used to start the worker
-     * @returns NULL
+     * @return NULL
      */
     function start()
     {
@@ -364,7 +375,7 @@ class Worker
      * 
      * @param array $requests
      * @param array $options
-     * @returns array $responses
+     * @return array $responses
      */
     static protected function _request_concurrently(array $requests, array $options=[])
     {   
@@ -421,7 +432,7 @@ class Worker
      * 
      * @param $endpoint_uri the URI to the root of the REST API endpoint
      * @throws RuntimeException if the loopback url cannot be determined
-     * @returns string
+     * @return string
      */
     static function get_loopback_url($noop_uri)
     {
@@ -490,7 +501,7 @@ class Worker
      * @param string $request_uri the URI of the WP resource to request
      * @param string $loopback_url the url returned from _get_loopback_url()
      * @see _get_loopback_url()
-     * @returns string
+     * @return string
      */
     static protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
     {
@@ -514,9 +525,9 @@ class Worker
      * @param string $request_uri the URI of the WP resource you're trying to request
      * @param any $data data which is json-encodable
      * @param array $options
-     * @returns WP_HTTP_Response|WP_Error
+     * @return WP_HTTP_Response|WP_Error
      */
-    static protected function _loopback_request(string $noop_uri, string $request_uri, $data=[], $options=[])
+    static protected function _loopback_request($noop_uri, $request_uri, $data=[], $options=[])
     {
         $url = self::_from_loopback_url_to_wp_url($request_uri, self::get_loopback_url($noop_uri));
 
@@ -540,7 +551,7 @@ class Worker
      * @param int $num the numeric id of the worker
      * @param int $timelimit the number of seconds a worker is allowed to run for before needing to respawn
      */
-    function __construct(int $num, int $time_limit=25)
+    function __construct($num, $time_limit=25)
     {
         if (!self::$endpoint_uri) throw new E_MisconfiguredWorkerURI("No endpoint uri configured for the workers");
         $this->_num = $num;

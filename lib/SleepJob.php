@@ -4,7 +4,7 @@ namespace ReactrIO\Background;
 
 class SleepJob extends Job
 {
-    function __construct($props=[])
+    function __construct(array $props=[])
     {
         parent::__construct($props);
         $this->_time_estimate = $this->_dataset;

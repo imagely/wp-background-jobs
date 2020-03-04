@@ -397,7 +397,7 @@ abstract class Job
      * @param int $post_id
      * @return Job
      */
-    static function from_post_id(int $post_id)
+    static function from_post_id($post_id)
     {
         if (($post = get_post($post_id))) {
             return self::from_post($post);
@@ -434,9 +434,10 @@ abstract class Job
     /**
      * Returns a WP_Post representation of the Job
      * @param string $queue the name of the queue to be associated with this Job
+     * @param string|null $worker_id
      * @return WP_Post
      */
-    function to_post(string $queue, string $worker_id=NULL)
+    function to_post($queue, $worker_id=NULL)
     {
         // Update some props passed in
         $this->_queue = $queue;
@@ -475,8 +476,11 @@ abstract class Job
 
     /**
      * Saves the job in the DB
+     * @param string $queue
+     * @param string|null $worker_id
+     * @return self
      */
-    function save(string $queue, string $worker_id=NULL)
+    function save($queue, $worker_id=NULL)
     {
         $previously_unqueued = $this->get_status() === self::STATUS_UNQUEUED;
 
