@@ -84,17 +84,9 @@ class Worker
      */
     protected static function _check_pid(string $id)
     {
-        if (!function_exists('shell_exec')) return self::UNKNOWN;
+        if (stripos(PHP_OS, 'WIN') !== FALSE) return self::UNKNOWN;
 
         if (($pid = self::_get_option(self::get_pid_transient_name($id)))) {
-            error_log("Got pid!!! {$pid}");
-            if (stripos(PHP_OS, 'windows') !== FALSE) {
-                $cmd = "wmic process get processid | find \"{$this->pid}\"";
-                $res = array_filter(explode(" ", shell_exec($cmd)));
-                return count($res) > 0 && $this->pid == reset($res)
-                    ? self::ALIVE
-                    : self::DEAD;
-            }
             return file_exists("/proc/{$pid}")
                 ? self::ALIVE
                 : self::DEAD;
@@ -237,7 +229,6 @@ class Worker
         if (update_option(self::get_pid_transient_name($this->id()), getmypid())) {
             error_log('PID transient set');
         }
-        else error_log("PID transient could not be set");
 
         // TODO: Implement working logging
         error_log("In worker!");
@@ -536,6 +527,7 @@ class Worker
                 'timeout'   => 20,
                 'blocking'  => FALSE,
                 'body'      => json_encode($data),
+                'sslverify' => FALSE,
                 'headers'   => [
                     'Content-Type'  => 'application/json',
                     'Hostname'      => $_SERVER['SERVER_NAME']
