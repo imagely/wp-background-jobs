@@ -87,7 +87,7 @@ abstract class Job
             'description'           => __( 'A job that will be processed in the background', 'reactr-bg' ),
             'labels'                => $labels,
             'supports'              => array( 'title' ),
-            'hierarchical'          => false,
+            'hierarchical'          => true,
             'public'                => true,
             'show_ui'               => true,
             'show_in_menu'          => true,
@@ -206,6 +206,12 @@ abstract class Job
     protected $_id = 0;
 
     /**
+     * The ID of the parent job which created this job
+     * @property int $_parent_job_id
+     */
+    protected $_parent_job_id = 0;
+
+    /**
      * A human-friendly label to describe the job
      * @property string $_label;
      */
@@ -275,61 +281,127 @@ abstract class Job
         foreach ($props as $k=>$v) $this->$k = $v;
     }
 
+    /**
+     * Gets the label for the job
+     * @return string
+     */
     function get_label()
     {
         return $this->_label;
     }
 
+    /**
+     * Gets the dataset associated with the job
+     * @return mixed
+     */
     function get_dataset()
     {
         return $this->_dataset;
     }
 
+    /**
+     * Gets the status of the job
+     * @return string
+     */
     function get_status()
     {
         return $this->_status;
     }
 
+    /**
+     * Gets the output of the job
+     * @return string
+     */
     function get_output($join="\n")
     {
         return implode($join, $this->_output);
     }
 
+    /**
+     * Gets the history of the job
+     * @return string
+     */
     function get_history($join="\n")
     {
         return implode($join, $this->_history);
     }
 
+    /**
+     * Gets the name of the job queue
+     * @return string
+     */
     function get_queue_name()
     {
         return $this->_queue;
     }
 
+    /**
+     * Gets the ID of the worker
+     * @return string
+     */
     function get_worker_id()
     {
         return $this->_worker_id;
     }
 
+    /**
+     * Gets the time estimated for this job to complete
+     * @return number
+     */
     function get_time_estimate()
     {
         return $this->_time_estimate;
     }
 
+    /**
+     * Gets the type of the job
+     * @return string
+     */
     function get_type()
     {
         return $this->_type;
     }
 
+    /**
+     * Gets the ID of the job
+     * @return int
+     */
     function get_id()
     {
         return $this->_id;
     }
 
+    /**
+     * Gets the ID of the parent job
+     * @return int
+     */
+    function get_parent_id()
+    {
+        return $this->_parent_job_id;
+    }
+
+    /**
+     * Gets the parent job
+     * @return self
+     */
+    function get_parent()
+    {
+        return self::from_post(get_post($this->get_parent_id()));
+    }
+
+    /**
+     * Gets the number of retry attempts thus far
+     * @return int
+     */
     function get_number_of_retry_attempts()
     {
         return $this->_retry_i;
     }
 
+    /**
+     * Determines whether the job can yet be retried
+     * @return bool
+     */
     function can_be_retried()
     {
         return self::get_status() != self::STATUS_ABANDONED &&
@@ -337,6 +409,10 @@ abstract class Job
              $this->_max_retries !== 0;
     }
 
+    /**
+     * Determines whether the job has been claimed by a worker or not
+     * @return bool
+     */
     function is_claimed()
     {
         return isset($this->_worker_id);
@@ -366,11 +442,15 @@ abstract class Job
         return $this;
     }
 
+    /**
+     * Marks a job as complete
+     * @return self
+     */
     function mark_as_done()
     {
         $this->_status = self::STATUS_DONE;
         $this->logHistory("Job is complete");
-        $this->save($this->get_queue_name());
+        return $this->save($this->get_queue_name());
     }
 
     /**
@@ -511,6 +591,11 @@ abstract class Job
         return $this;
     }
 
+    /**
+     * Deletes a job
+     * @return Job
+     * @throws E_DequeueJob
+     */
     function delete()
     {
         if (wp_delete_post($this->get_id())) {
@@ -522,7 +607,12 @@ abstract class Job
         throw new E_DequeueJob("Could not dequeue {$this->get_id()}");
     }
 
-
+    /**
+     * Logs an entry to the job's history record
+     * @param string $msg
+     * @param number $timestamp
+     * @return self
+     */
     function logHistory($msg, $timestamp=NULL)
     {
         $date = date("%r", $timestamp);
@@ -530,6 +620,10 @@ abstract class Job
         return $this;
     }
 
+    /**
+     * Logs output for the job
+     * @return self
+     */
     function logOutput($msg, $timestamp=NULL)
     {
         $date = date("%r", $timestamp);
@@ -537,6 +631,10 @@ abstract class Job
         return $this;
     }
 
+    /**
+     * Removes the job from the worker's queue
+     * @return self
+     */
     function unclaim()
     {
         $this->logHistory("Job was unclaimed from {$this->get_worker_id()}");
