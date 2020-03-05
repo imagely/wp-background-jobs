@@ -300,6 +300,18 @@ abstract class Job
     }
 
     /**
+     * Sets the dataset for the job. Note, you'll need to save the job manually
+     * @param mixed $data
+     * @return self
+     */
+    protected function set_dataset($data)
+    {
+        $this->_dataset = $data;
+        return $this;
+    }
+
+
+    /**
      * Gets the status of the job
      * @return string
      */
