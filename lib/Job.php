@@ -463,11 +463,12 @@ abstract class Job
         $props = json_decode($post->post_content, TRUE);
         $klass = self::$_registered_types[$props['_type']];
         
-        $props['_label']        = $post->post_title;
-        $props['_id']           = $post->ID;
-        $props['_worker_id']    = $post->post_password;
-        $props['_queue']        = str_replace("queue/", "", $post->post_mime_type);
-        $props['_status']       = $post->post_status;
+        $props['_label']            = $post->post_title;
+        $props['_id']               = $post->ID;
+        $props['_worker_id']        = $post->post_password;
+        $props['_queue']            = str_replace("queue/", "", $post->post_mime_type);
+        $props['_status']           = $post->post_status;
+        $props['_parent_job_id']    = $post->post_parent;
 
         return new $klass($props);
     }
@@ -505,10 +506,10 @@ abstract class Job
      * @param any $dataset
      * @return Job
      */
-    static function create($label, $type, $dataset=[])
+    static function create($label, $type, $dataset=[], $parent_job_id=0)
     {
         $klass = self::_get_type_class($type);
-        return new $klass(['_label' => $label, '_type' => $type, '_dataset' => $dataset]);
+        return new $klass(['_label' => $label, '_type' => $type, '_dataset' => $dataset, '_parent_job_id' => $parent_job_id]);
     }
 
     /**
@@ -542,6 +543,7 @@ abstract class Job
         $data->post_title = $this->_label;
         $data->post_content = json_encode($other_data);
         $data->post_mime_type = "queue/{$queue}"; /** post_mime_type is the queue */
+        $data->post_parent = $this->_parent_job_id;
 
         // Apply overrides
         if ($worker_id) $data->post_password = $worker_id;

@@ -64,10 +64,10 @@ class Worker
      */
     public static function get_status($id, $pings=1, $ttl=1)
     {
-        return array_reduce(
+        $retval = array_reduce(
             array_fill(0, $pings, $ttl),
-            function($retval, $val) use ($id){
-                sleep($val);
+            function($retval, $val) use ($id, $pings){
+                if ($pings > 1) sleep($val);
                 if ($retval == self::ALIVE) return $retval;
                 $status = self::_check_pid($id);
                 return $status == self::UNKNOWN
@@ -76,6 +76,9 @@ class Worker
             },
             FALSE
         );
+
+        if ($retval != self::ALIVE) delete_option(self::get_pid_transient_name($id));
+        return $retval;
     }
 
     /**
@@ -87,11 +90,9 @@ class Worker
     {
         if (stripos(PHP_OS, 'WIN') !== FALSE) return self::UNKNOWN;
 
-        if (($pid = self::_get_option(self::get_pid_transient_name($id)))) {
-            return file_exists("/proc/{$pid}")
-                ? self::ALIVE
-                : self::DEAD;
-            
+        if (($json = self::_get_option(self::get_pid_transient_name($id)))) {
+            $json = json_decode($id, TRUE);
+            if (file_exists("/proc/{$json['pid']}")) return self::ALIVE;
         }
 
         return self::DEAD;
@@ -104,7 +105,12 @@ class Worker
      */
     protected static function _check_pid_transient($id)
     {
-        return get_option(self::get_pid_transient_name($id)) ? self::ALIVE : self::DEAD;
+        $transient_name = self::get_pid_transient_name($id);
+        if(($json = self::_get_option($transient_name))) {
+            $json = json_decode($json);
+            if (microtime(TRUE) - $json['started_at'] < 30) return self::ALIVE;
+        }
+        return self::DEAD;
     }
 
     /**
@@ -234,13 +240,20 @@ class Worker
     {
         $exit = FALSE;
 
-        $this->_started_at = microtime(TRUE);
-        if (update_option(self::get_pid_transient_name($this->id()), getmypid())) {
-            error_log('PID transient set');
+        if (self::_get_option(self::get_pid_transient_name($this->id()))) {
+            error_log("Worker already started");
         }
 
+        define('IN_REACTR_WORKER', TRUE);
+
+        $this->_started_at = microtime(TRUE);
+        update_option(self::get_pid_transient_name($this->id()), [
+            'started_at' => $this->_started_at,
+            'pid' => getmypid()
+        ]);
+
         // TODO: Implement working logging
-        error_log("In worker!");
+        error_log("In worker {$this->id()}!");
 
         while ($this->has_time_remaining()) {
             // Stop request?
@@ -280,6 +293,7 @@ class Worker
         if (!$exit) $this->start();
         else {
             delete_option(self::get_pid_transient_name($this->id()));
+            error_log("Worker going to sleep");
         }
     }
 

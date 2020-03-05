@@ -56,6 +56,9 @@ class Endpoint
         add_action('rest_api_init', function(){
             $this->_add_route('/startWorker');
             $this->_add_route('/noop');
+            $this->_add_route('/wakeup', ['permission_callback' => function(){
+                return current_user_can('edit_posts');
+            }]);
         });
     }
 
@@ -67,10 +70,19 @@ class Endpoint
     {
         return 'noop';
     }
+
+    public function _wakeup()
+    {
+        return array_map(
+            function(Worker $worker){
+                return $worker->id();
+            },
+            Bootstrap::get_instance()->wakeup_workers()
+        );
+    }
     
     public function _startWorker(\WP_REST_Request $request)
     {
-        error_log("---------- STARTING WORKER ------------");
         $params = $request->get_json_params();
         if (isset($params['num'])) {
             $worker = new Worker($params['num']);
