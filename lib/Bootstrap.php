@@ -88,7 +88,7 @@ class Bootstrap
         add_filter('cron_schedules', function($schedules){
             $schedules['10Min'] = [
                 'interval' => 60 * 10, // 60 seconds * 10 minutes
-                'display'  => __('Every 10 Minutes', 'wp-background-jobs')
+                'display'  => __('Every 10 Minutes', 'reactr-bg')
             ];
 
             return $schedules;
