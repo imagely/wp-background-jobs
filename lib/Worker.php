@@ -60,7 +60,7 @@ class Worker
      * @param string $id
      * @param int $pings
      * @param int $ttl
-     * @return ALIVE|DEAD
+     * @return int
      */
     public static function get_status($id, $pings=1, $ttl=1)
     {
@@ -84,7 +84,7 @@ class Worker
     /**
      * Checks whether the PID is alive
      * @param string id
-     * @return UNKNOWN|ALIVE|DEAD
+     * @return int
      */
     protected static function _check_pid($id)
     {
@@ -104,7 +104,7 @@ class Worker
     /**
      * Checks whether a pid transient exists
      * @param string $id
-     * @return ALIVE|DEAD
+     * @return int
      */
     protected static function _check_pid_transient($id)
     {
@@ -180,13 +180,11 @@ class Worker
      * that didn't exist in the same request, we have to fetch
      * directly from the DB: See: https://dhanendranblog.wordpress.com/2017/10/12/wordpress-alloptions-and-notoptions/
      * @param string $name
-     * @return any
+     * @return mixed
      */
     protected static function _get_option($name)
     {
-        /**
-         * @var \WPDB $wpdb
-         */
+        /** @var \WPDB $wpdb */
         global $wpdb;
 
         return $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
@@ -236,8 +234,7 @@ class Worker
      * Once started, the worker will continuously keep itself alive until
      * there are no more items in the queue to process
      * 
-     * @param string $endpoint_uri the REST URI used to start the worker
-     * @return NULL
+     * @return void
      */
     function run()
     {
@@ -333,7 +330,7 @@ class Worker
      * May optionally specify $seconds to determine if that
      * amount of seconds in available in execution time
      * 
-     * @param $seconds optional
+     * @param null $seconds optional
      * @return bool
      */
     function has_time_remaining($seconds=NULL)
@@ -357,7 +354,6 @@ class Worker
     /**
      * Starts the work
      * 
-     * @param $endpoint_uri the REST URI used to start the worker
      * @return NULL
      */
     function start()
@@ -447,7 +443,7 @@ class Worker
      * 
      * Returns a loopback url for the noop resource
      * 
-     * @param $endpoint_uri the URI to the root of the REST API endpoint
+     * @param string $noop_uri the URI to the root of the REST API endpoint
      * @throws RuntimeException if the loopback url cannot be determined
      * @return string
      */
@@ -467,14 +463,14 @@ class Worker
 
             // Request all variations concurrently
             $requests = array_map(
-                function($test) use ($noop_uri){
+                function($test) use ($noop_uri) {
                     $url    = Url::fromString(get_rest_url(NULL, $noop_uri));
                     $port   = $url->getPort();
                     $scheme = $url->getScheme();
                     extract($test);
 
                     $url = (string) $url
-                        ->withHost($ip)
+                        ->withHost($ip) // TODO: $ip is undefined
                         ->withPort($port)
                         ->withScheme($scheme);
 
@@ -508,7 +504,7 @@ class Worker
                 set_transient($transient_name, $retval, 60*60*24);
                 return $retval;
             }
-            throw new \RuntimeException("Could not determine loopback url");
+            throw new RuntimeException("Could not determine loopback url");
         }
         return $retval;
     }
@@ -541,9 +537,9 @@ class Worker
      * 
      * @param string $noop_uri this is the root REST API endpoint, provided in Endpoint::get_instance().
      * @param string $request_uri the URI of the WP resource you're trying to request
-     * @param any $data data which is json-encodable
+     * @param mixed $data data which is json-encodable
      * @param array $options
-     * @return WP_HTTP_Response|WP_Error
+     * @return array|\WP_Error
      */
     static protected function _loopback_request($noop_uri, $request_uri, $data=[], $options=[])
     {
@@ -567,7 +563,7 @@ class Worker
 
     /**
      * @param int $num the numeric id of the worker
-     * @param int $timelimit the number of seconds a worker is allowed to run for before needing to respawn
+     * @param int $time_limit the number of seconds a worker is allowed to run for before needing to respawn
      */
     function __construct($num, $time_limit=25)
     {
