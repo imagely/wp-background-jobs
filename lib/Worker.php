@@ -42,7 +42,7 @@ class Worker
      */
     public static function get_pid_transient_name($id)
     {
-        return str_replace("\\", '_', strtolower($id)).'_pid';
+        return str_replace("\\", '_', strtolower($id)) . '_pid';
     }
 
     /**
@@ -88,11 +88,14 @@ class Worker
      */
     protected static function _check_pid($id)
     {
-        if (stripos(PHP_OS, 'WIN') !== FALSE) return self::UNKNOWN;
+        if (stripos(PHP_OS, 'WIN') !== FALSE)
+            return self::UNKNOWN;
 
-        if (($json = self::_get_option(self::get_pid_transient_name($id)))) {
+        if (($json = self::_get_option(self::get_pid_transient_name($id))))
+        {
             $json = json_decode($id, TRUE);
-            if (file_exists("/proc/{$json['pid']}")) return self::ALIVE;
+            if (is_array($json) && file_exists("/proc/{$json['pid']}"))
+                return self::ALIVE;
         }
 
         return self::DEAD;
@@ -512,14 +515,15 @@ class Worker
 
     /**
      * Given the loopback url, return a valid WP resource url
-     * @param string $request_uri the URI of the WP resource to request
+     *
+     * @param string $wp_request_uri the URI of the WP resource to request
      * @param string $loopback_url the url returned from _get_loopback_url()
      * @see _get_loopback_url()
      * @return string
      */
     static protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
     {
-        $site_url   = Url::fromString(get_rest_url(NULL, $wp_request_uri));
+        $site_url = Url::fromString(get_rest_url(NULL, $wp_request_uri));
         
         return (string) Url::fromString($loopback_url)->withPath($site_url->getPath());
     }
