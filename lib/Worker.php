@@ -92,11 +92,14 @@ class Worker
      */
     protected static function _check_pid($id)
     {
-        if (stripos(PHP_OS, 'WIN') !== FALSE) return self::UNKNOWN;
+        if (stripos(PHP_OS, 'WIN') !== FALSE)
+            return self::UNKNOWN;
 
-        if (($json = self::_get_option(self::get_pid_transient_name($id)))) {
+        if (($json = self::_get_option(self::get_pid_transient_name($id))))
+        {
             $json = json_decode($id, TRUE);
-            if (file_exists("/proc/{$json['pid']}")) return self::ALIVE;
+            if (is_array($json) && file_exists("/proc/{$json['pid']}"))
+                return self::ALIVE;
         }
 
         return self::DEAD;
@@ -185,9 +188,7 @@ class Worker
      */
     protected static function _get_option($name)
     {
-        /**
-         * @var \WPDB $wpdb
-         */
+        /** @var \WPDB $wpdb */
         global $wpdb;
 
         return $wpdb->get_var($wpdb->prepare("SELECT `option_value` FROM `{$wpdb->options}` WHERE `option_name` = %s", $name));
@@ -470,7 +471,7 @@ class Worker
 
             // Request all variations concurrently
             $requests = array_map(
-                function($test) use ($noop_uri){
+                function($test) use ($noop_uri) {
                     $url    = Url::fromString(get_rest_url(NULL, $noop_uri));
                     $port   = $url->getPort();
                     $scheme = $url->getScheme();
@@ -510,13 +511,14 @@ class Worker
                 set_transient($transient_name, $retval, 60*60*24);
                 return $retval;
             }
-            throw new \RuntimeException("Could not determine loopback url");
+            throw new RuntimeException("Could not determine loopback url");
         }
         return $retval;
     }
 
     /**
      * Given the loopback url, return a valid WP resource url
+     *
      * @param string $wp_request_uri the URI of the WP resource to request
      * @param string $loopback_url the url returned from _get_loopback_url()
      * @see _get_loopback_url()
@@ -568,7 +570,7 @@ class Worker
 
     /**
      * @param int $num the numeric id of the worker
-     * @param int $timelimit the number of seconds a worker is allowed to run for before needing to respawn
+     * @param int $time_limit the number of seconds a worker is allowed to run for before needing to respawn
      */
     function __construct($num, $time_limit=25)
     {
