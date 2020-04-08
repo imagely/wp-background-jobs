@@ -42,7 +42,7 @@ class Worker
      */
     public static function get_pid_transient_name($id)
     {
-        return str_replace("\\", '_', strtolower($id)).'_pid';
+        return str_replace("\\", '_', strtolower($id)) . '_pid';
     }
 
     /**
@@ -52,7 +52,7 @@ class Worker
      */
     public static function get_stop_transient_name($id)
     {
-        return str_replace("\\", '_', strtolower($id)).'stop';
+        return str_replace("\\", '_', strtolower($id)) . 'stop';
     }
 
     /**
@@ -60,31 +60,35 @@ class Worker
      * @param string $id
      * @param int $pings
      * @param int $ttl
-     * @return ALIVE|DEAD
+     * @return int
      */
     public static function get_status($id, $pings=1, $ttl=1)
     {
         $retval = array_reduce(
             array_fill(0, $pings, $ttl),
-            function($retval, $val) use ($id, $pings){
-                if ($pings > 1) sleep($val);
-                if ($retval == self::ALIVE) return $retval;
+            function($retval, $val) use ($id, $pings) {
+                if ($pings > 1)
+                    sleep($val);
+                if ($retval == self::ALIVE)
+                    return $retval;
+
                 $status = self::_check_pid($id);
-                return $status == self::UNKNOWN
-                    ? self::_check_pid_transient($id)
-                    : $status;
+
+                return $status == self::UNKNOWN ? self::_check_pid_transient($id) : $status;
             },
             FALSE
         );
 
-        if ($retval != self::ALIVE) delete_option(self::get_pid_transient_name($id));
+        if ($retval != self::ALIVE)
+            delete_option(self::get_pid_transient_name($id));
+
         return $retval;
     }
 
     /**
      * Checks whether the PID is alive
      * @param string id
-     * @return UNKNOWN|ALIVE|DEAD
+     * @return int
      */
     protected static function _check_pid($id)
     {
@@ -101,7 +105,7 @@ class Worker
     /**
      * Checks whether a pid transient exists
      * @param string $id
-     * @return ALIVE|DEAD
+     * @return int
      */
     protected static function _check_pid_transient($id)
     {
@@ -177,7 +181,7 @@ class Worker
      * that didn't exist in the same request, we have to fetch
      * directly from the DB: See: https://dhanendranblog.wordpress.com/2017/10/12/wordpress-alloptions-and-notoptions/
      * @param string $name
-     * @return any
+     * @return mixed
      */
     protected static function _get_option($name)
     {
@@ -186,7 +190,7 @@ class Worker
          */
         global $wpdb;
 
-        return $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
+        return $wpdb->get_var($wpdb->prepare("SELECT `option_value` FROM `{$wpdb->options}` WHERE `option_name` = %s", $name));
     }
 
     /**
@@ -232,9 +236,6 @@ class Worker
      * 
      * Once started, the worker will continuously keep itself alive until
      * there are no more items in the queue to process
-     * 
-     * @param string $endpoint_uri the REST URI used to start the worker
-     * @return NULL
      */
     function run()
     {
@@ -290,7 +291,10 @@ class Worker
             }
         }
 
-        if (!$exit) $this->start();
+        if (!$exit)
+        {
+            $this->start();
+        }
         else {
             delete_option(self::get_pid_transient_name($this->id()));
             error_log("Worker going to sleep");
@@ -330,15 +334,17 @@ class Worker
      * May optionally specify $seconds to determine if that
      * amount of seconds in available in execution time
      * 
-     * @param $seconds optional
+     * @param null|int $seconds (optional)
      * @return bool
      */
-    function has_time_remaining($seconds=NULL)
+    function has_time_remaining($seconds = NULL)
     {
         $remaining = $this->_time_limit - $this->get_elapsed();
 
-        if ($seconds && $remaining >= $seconds) return TRUE;
-        else if (!$seconds && $remaining) return TRUE;
+        if ($seconds && $remaining >= $seconds)
+            return TRUE;
+        else if (!$seconds && $remaining)
+            return TRUE;
 
         return FALSE;
     }
@@ -354,21 +360,21 @@ class Worker
     /**
      * Starts the work
      * 
-     * @param $endpoint_uri the REST URI used to start the worker
-     * @return NULL
+     * @return Worker
      */
     function start()
     {
-        if ($this->is_running()) return $this;
+        if ($this->is_running())
+            return $this;
 
         // We know that the noop resource is available on the same endpoint
         $noop_uri = str_replace('/startWorker', '/noop', self::$endpoint_uri);
 
         // JSON
         $data = [
-            'secret'        => Endpoint::get_worker_secret(),
-            'num'           => $this->_num,
-            'endpoint_uri'  => self::$endpoint_uri
+            'secret'       => Endpoint::get_worker_secret(),
+            'num'          => $this->_num,
+            'endpoint_uri' => self::$endpoint_uri
         ];
 
         self::_loopback_request(
@@ -444,7 +450,7 @@ class Worker
      * 
      * Returns a loopback url for the noop resource
      * 
-     * @param $endpoint_uri the URI to the root of the REST API endpoint
+     * @param string $noop_uri The URI to the root of the REST API endpoint
      * @throws RuntimeException if the loopback url cannot be determined
      * @return string
      */
@@ -471,7 +477,6 @@ class Worker
                     extract($test);
 
                     $url = (string) $url
-                        ->withHost($ip)
                         ->withPort($port)
                         ->withScheme($scheme);
 
@@ -512,14 +517,14 @@ class Worker
 
     /**
      * Given the loopback url, return a valid WP resource url
-     * @param string $request_uri the URI of the WP resource to request
+     * @param string $wp_request_uri the URI of the WP resource to request
      * @param string $loopback_url the url returned from _get_loopback_url()
      * @see _get_loopback_url()
      * @return string
      */
     static protected function _from_loopback_url_to_wp_url($wp_request_uri, $loopback_url)
     {
-        $site_url   = Url::fromString(get_rest_url(NULL, $wp_request_uri));
+        $site_url = Url::fromString(get_rest_url(NULL, $wp_request_uri));
         
         return (string) Url::fromString($loopback_url)->withPath($site_url->getPath());
     }
@@ -535,11 +540,11 @@ class Worker
      * 
      * The remaining parameters relate to the request you're trying to make
      * 
-     * @param string $noop_uri this is the root REST API endpoint, provided in Endpoint::get_instance().
-     * @param string $request_uri the URI of the WP resource you're trying to request
-     * @param any $data data which is json-encodable
+     * @param string $noop_uri This is the root REST API endpoint provided in Endpoint::get_instance().
+     * @param string $request_uri The URI of the WP resource you're trying to request
+     * @param mixed $data Any data which is json-encodable
      * @param array $options
-     * @return WP_HTTP_Response|WP_Error
+     * @return \WP_HTTP_Response|\WP_Error
      */
     static protected function _loopback_request($noop_uri, $request_uri, $data=[], $options=[])
     {

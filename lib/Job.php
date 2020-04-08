@@ -102,7 +102,36 @@ abstract class Job
             'show_in_rest'          => true,
         );
         return register_post_type( 'reactr-bg-job', $args );
-    }    
+    }
+
+    /**
+     * @param string $queue
+     * @param array $statuses
+     * @return int
+     */
+    static function get_count_from_queue($queue, $statuses = [self::STATUS_QUEUED])
+    {
+        global $wpdb;
+
+        $query = $wpdb->prepare(
+            "SELECT COUNT(`ID`)
+                    FROM `{$wpdb->posts}`
+                    WHERE `post_type` = %s",
+            self::POST_TYPE
+        );
+
+        if (is_array($statuses) && !empty($statuses))
+        {
+            $mime_part = rtrim(str_repeat('%s,', count($statuses)), ',');
+            $query .= $wpdb->prepare(
+                " AND `post_mime_type` IN ({$mime_part})",
+                $statuses
+            );
+        }
+
+        $result = $wpdb->get_col($query);
+        return reset($result);
+    }
 
     /**
      * Gets a job from the queue
@@ -117,20 +146,25 @@ abstract class Job
     static function get_all_from_queue($queue=NULL, $limit=0, $statuses=[self::STATUS_FAILED, self::STATUS_QUEUED])
     {
         $query_params = [
-            'post_type'         => self::POST_TYPE,
-            'post_status'       => $statuses
+            'post_type'   => self::POST_TYPE,
+            'post_status' => $statuses
         ];
 
         // Was a queue specified?
-        if ($queue) $query_params['post_mime_type'] = "queue/{$queue}";
+        if ($queue)
+            $query_params['post_mime_type'] = "queue/{$queue}";
 
         // Was a limit given?
-        if ($limit) $limit = intval($limit);
-        if ($limit > 0) add_filter('post_limits_request', function() use ($limit) {return "LIMIT {$limit}";});
+        if ($limit)
+            $limit = intval($limit);
+        if ($limit > 0)
+            add_filter('post_limits_request', function() use ($limit) { return "LIMIT {$limit}"; });
 
-        $query = new \WP_Query($query_params);
+        $query  = new \WP_Query($query_params);
         $retval = array_map([self::class, 'from_post'], $query->get_posts());
-        if ($limit > 0) remove_all_filters('post_limits_request');
+
+        if ($limit > 0)
+            remove_all_filters('post_limits_request');
 
         return $retval;
     }
