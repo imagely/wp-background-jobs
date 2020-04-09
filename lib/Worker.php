@@ -251,7 +251,7 @@ class Worker
         $this->_started_at = microtime(TRUE);
         update_option(self::get_pid_transient_name($this->id()), [
             'started_at' => $this->_started_at,
-            'pid' => getmypid()
+            'pid'        => getmypid()
         ]);
 
         // TODO: Implement working logging
@@ -259,7 +259,8 @@ class Worker
 
         while ($this->has_time_remaining()) {
             // Stop request?
-            if (self::_get_option(self::get_stop_transient_name($this->id()))) {
+            if (self::_get_option(self::get_stop_transient_name($this->id())))
+            {
                 delete_option(self::get_stop_transient_name($this->id()));
                 $exit = TRUE;
                 break;
@@ -267,13 +268,15 @@ class Worker
 
             // Get a job to process
             $job = Job::get_next_from_queue();
-            if (!$job) {
+            if (!$job)
+            {
                 $exit = TRUE;
                 break;
             }
             
             try {
-                if ($this->has_time_remaining($job->get_time_estimate())) {
+                if ($this->has_time_remaining($job->get_time_estimate()))
+                {
                     error_log("Starting job: {$job->get_label()}");
                     $job->run();
                     $job->mark_as_done();
@@ -401,15 +404,16 @@ class Worker
     static protected function _request_concurrently(array $requests, array $options=[])
     {   
         $hooks = new \Requests_Hooks();
-        $hook = function($handle){
+        $hook = function($handle) {
             curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, 0);
             curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, 0);
         };
+
         $hooks->register('curl.before_multi_add', $hook);
 
         // Submit requests
         return \Requests::request_multiple($requests, array_merge($options, [
-            'hooks'     => $hooks
+            'hooks' => $hooks
         ]));
     }
 
@@ -457,63 +461,70 @@ class Worker
      */
     static function get_loopback_url($noop_uri)
     {
-        static $retval = NULL;
+        $transient_name = 'reactr-bg-loopback-url-' . md5(site_url());
+        $loopback_url   = get_transient($transient_name);
 
-        if (!$retval) {
-            $transient_name = 'reactr-bg-loopback-url-' . md5(site_url());
-            $loopback_url = get_transient($transient_name);
+        // If we've already done the work, then return early
+        if ($loopback_url)
+            return $loopback_url;
 
-            // If we've already done the work, then return early
-            if ($loopback_url) {
-                $retval = $loopback_url;
-                return $loopback_url;
-            }
+        /* Disabled: this causes FIFTEEN simultaneous connections to be established which adds a noticeable wait time
+        // Request all variations concurrently
+        $requests = array_map(
+            function($test) use ($noop_uri) {
+                $url    = Url::fromString(get_rest_url(NULL, $noop_uri));
+                $port   = $url->getPort();
+                $scheme = $url->getScheme();
+                extract($test);
 
-            // Request all variations concurrently
-            $requests = array_map(
-                function($test) use ($noop_uri) {
-                    $url    = Url::fromString(get_rest_url(NULL, $noop_uri));
-                    $port   = $url->getPort();
-                    $scheme = $url->getScheme();
-                    extract($test);
+                $url = (string) $url
+                    ->withPort($port)
+                    ->withScheme($scheme);
 
-                    $url = (string) $url
-                        ->withPort($port)
-                        ->withScheme($scheme);
+                return [
+                    'url'       => $url,
+                    'headers'   => [
+                        'Content-Type'  => 'application/json',
+                        'Host'          => $_SERVER['SERVER_NAME']
+                    ],
+                    'data'              => json_encode(['secret' => Endpoint::get_worker_secret()]),
+                    'type'              => \Requests::POST,
+                    'timeout'           => 5,
+                ];
+            },
+            self::_get_loopback_url_tests()
+        ); */
 
-                    return [
-                        'url'       => $url,
-                        'headers'   => [
-                            'Content-Type'  => 'application/json',
-                            'Host'          => $_SERVER['SERVER_NAME']
-                        ],
-                        'data'              => json_encode(['secret' => Endpoint::get_worker_secret()]),
-                        'type'              => \Requests::POST,
-                        'timeout'           => 5,
-                    ];
-                },
-                self::_get_loopback_url_tests()
-            );
-            
-            // Currently, the Requests::multisite
-            $responses = self::_request_concurrently($requests, ['timeout' => 5]);
+        $requests = [[
+            'url'     => (string) Url::fromString(get_rest_url(NULL, $noop_uri)),
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'Host'         => $_SERVER['SERVER_NAME']
+            ],
+            'data'    => json_encode(['secret' => Endpoint::get_worker_secret()]),
+            'type'    => \Requests::POST,
+            'timeout' => 50
+        ]];
 
-            // Get the url which worked
-            $loopback_url = array_reduce($responses, function($retval, $response){
-                return $response instanceof \Requests_Response && $response->body == '"noop"'
-                    ? str_replace('/noop', '', $response->url)
-                    : $retval;
-            });
+        // Currently, the Requests::multisite
+        $responses = self::_request_concurrently($requests, ['timeout' => 5]);
 
-            // Ensure that one worked
-            if ($loopback_url) {
-                $retval = $loopback_url;
-                set_transient($transient_name, $retval, 60*60*24);
-                return $retval;
-            }
-            throw new RuntimeException("Could not determine loopback url");
+        // Get the url which worked
+        $loopback_url = array_reduce($responses, function($retval, $response) {
+            return $response instanceof \Requests_Response && $response->body == '"noop"'
+                ? str_replace('/noop', '', $response->url)
+                : $retval;
+        });
+
+        // Ensure that one worked
+        if ($loopback_url)
+        {
+            $retval = $loopback_url;
+            set_transient($transient_name, $retval, 60*60*24);
+            return $retval;
         }
-        return $retval;
+
+        throw new RuntimeException("Could not determine loopback url");
     }
 
     /**
