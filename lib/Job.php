@@ -198,7 +198,7 @@ abstract class Job
      * @param int $limit number of jobs to return
      * @param string[]|string $statuses
      * @param int|null $parent_id find child tasks with this parent_id set
-     * @return Job[]
+     * @return Job|Job[]
      */
     static function get_all_from_queue($queue = NULL, $limit = 0, $statuses = [self::STATUS_FAILED, self::STATUS_QUEUED], $parent_id = NULL)
     {
@@ -248,23 +248,32 @@ abstract class Job
         $parent = self::get_all_from_queue($queue, 1, $statuses, 0);
 
         if ($parent)
-        {
-            // Process child processes first
-            $job = self::get_all_from_queue($queue, 1, $statuses, $parent->get_id());
-
-            // No children left to process: now handle the parent
-            if (!$job)
-                $job = $parent;
-        }
-        else {
+            $job = self::search_for_next_child_in_queue($parent, $queue);
+        else
             // Just in case: find any possible remaining tasks / orphans
             $job = self::get_all_from_queue($queue, 1, $statuses, NULL);
-        }
 
         if ($job)
             return $job->save($job->get_queue_name());
         else
             return NULL;
+    }
+
+    /**
+     * @param self $parent
+     * @param string|null $queue
+     * @return self
+     */
+    static function search_for_next_child_in_queue($parent, $queue = NULL)
+    {
+        $statuses = [self::STATUS_FAILED, self::STATUS_QUEUED];
+
+        $job = self::get_all_from_queue($queue, 1, $statuses, $parent->get_id());
+
+        if (!$job)
+            return $parent;
+        else
+            return self::search_for_next_child_in_queue($job, $queue);
     }
 
     /**
