@@ -1,5 +1,5 @@
 {
-    "name": "reactr-io/wp-background-jobs",
+    "name": "imagely/wp-background-jobs",
     "description": "A library which provides jobs, a queue, and worker implementation for WordPress",
     "license": "GPL-2.0-only",
     "authors": [
